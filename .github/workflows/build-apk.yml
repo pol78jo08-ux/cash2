@@ -36,7 +36,7 @@ jobs:
       # 5. توليد فولدر android/ (غير موجود في المستودع أصلاً)
       - name: Generate Android platform files
         working-directory: SmartForwarder/SmartForwarder
-        run: flutter create --platforms=android --org com.mywork .
+        run: flutter create --platforms=android --org com.mywork --project-name smart_forwarder .
 
       # 6. تظبيط صلاحيات AndroidManifest.xml (SMS + Foreground Service)
       - name: Patch AndroidManifest with required permissions

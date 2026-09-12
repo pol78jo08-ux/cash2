@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:telephony/telephony.dart';
@@ -38,7 +37,6 @@ class SmartForwarderApp extends StatefulWidget {
 class _SmartForwarderAppState extends State<SmartForwarderApp> {
   bool _initialized = false;
   String _statusLog = '';
-  bool _serviceStarted = false;
 
   @override
   void initState() {
@@ -54,51 +52,38 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
 
   Future<void> _initializeApp() async {
     try {
-      _log(' بدء التهيئة...');
+      _log('🔄 بدء التهيئة...');
 
-      // 1. طلب الصلاحيات
       final smsStatus = await Permission.sms.request();
-      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌"}');
+      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌ (${smsStatus.name})"}');
 
       try {
         await Permission.notification.request();
-        _log(' صلاحية الإشعارات: تم الطلب');
+        _log('🔔 صلاحية الإشعارات: تم الطلب');
       } catch (e) {
-        _log(' الإشعارات: مش مطلوبة في النسخة دي');
+        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي (طبيعي)');
       }
 
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
       _log('🔋 استثناء البطارية: تم الطلب');
 
-      // 2. تهيئة Foreground Task
       _initForegroundTask();
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      // 3. بدء الخدمة الخلفية - بدون await لتجنب Timeout
-      _log('🚀 محاولة بدء الخدمة الخلفية...');
-      
-      // نستخدم Future.timeout لتجنب التعليق
-      try {
-        await FlutterForegroundTask.startService(
-          notificationTitle: 'Smart Forwarder شغال',
-          notificationText: 'جاري مراقبة الرسائل النصية',
-          callback: startCallback,
-        ).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            _log('⚠️ الخدمة أخدت وقت طويل لكن هتشتغل في الخلفية');
-            return true;
-          },
-        );
-        _serviceStarted = true;
+      // البدء الآمن للخدمة بدون خصائص تسبب أخطاء في الإصدار 8.x
+      final serviceResult = await FlutterForegroundTask.startService(
+        notificationTitle: 'Smart Forwarder شغال',
+        notificationText: 'جاري مراقبة الرسائل النصية',
+        callback: startCallback,
+      );
+
+      if (serviceResult is ServiceRequestFailure) {
+        _log('🚀 بدء الخدمة الخلفية: فشل ❌');
+        _log('سبب الفشل: ${serviceResult.error}');
+      } else {
         _log('🚀 بدء الخدمة الخلفية: نجح ✅');
-      } catch (e) {
-        // لو حصل TimeoutException أو أي خطأ، نتجاهله ونكمل
-        _serviceStarted = false;
-        _log('⚠️ الخدمة الخلفية: فيها تحذير لكن التطبيق شغال');
       }
 
-      // 4. الاستماع لرسائل SMS
       telephony.listenIncomingSms(
         onNewMessage: (SmsMessage message) {
           SmsProcessor.processIncomingMessage(message);
@@ -108,17 +93,16 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       );
       _log('👂 بدء الاستماع لرسائل SMS: تم');
 
-      // 5. مراقبة الإنترنت
       ConnectivityService.startMonitoring();
       _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
 
       _log('✅ كل حاجة اشتغلت بنجاح!');
     } catch (e, stackTrace) {
-      _log(' حصل خطأ: $e\nStack: $stackTrace');
+      _log('❌ حصل خطأ:\n$e\nStack:\n$stackTrace');
     }
 
     if (globalErrorLog.isNotEmpty) {
-      _log('\n⚠️ أخطاء عامة:');
+      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
       for (final err in globalErrorLog) {
         _log(err);
       }
@@ -137,11 +121,6 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         channelDescription: 'خدمة مراقبة الرسائل النصية',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
-        iconData: const NotificationIconData(
-          resType: ResourceType.mipmap,
-          resPrefix: ResourcePrefix.ic,
-          name: 'launcher',
-        ),
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
       foregroundTaskOptions: ForegroundTaskOptions(
@@ -149,7 +128,6 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         autoRunOnBoot: true,
         allowWakeLock: true,
         allowWifiLock: true,
-        isSticky: true,
       ),
     );
   }
@@ -168,9 +146,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         );
       },
       home: !_initialized
-          ? const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            )
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _buildDiagnosticScreen(),
     );
   }
@@ -188,10 +164,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
               padding: const EdgeInsets.all(16),
               child: SelectableText(
                 _statusLog,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
               ),
             ),
           ),
@@ -200,16 +173,15 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
             child: SizedBox(
               width: double.infinity,
               height: 50,
-              child: ElevatedButton.icon(
+              child: ElevatedButton(
                 onPressed: _navigateToHome,
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text(
-                  'الدخول للتطبيق',
-                  style: TextStyle(fontSize: 16),
-                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue,
                   foregroundColor: Colors.white,
+                ),
+                child: const Text(
+                  'الدخول للتطبيق',
+                  style: TextStyle(fontSize: 16),
                 ),
               ),
             ),
@@ -219,53 +191,24 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     );
   }
 
-  Future<void> _navigateToHome() async {
+  void _navigateToHome() {
     try {
       if (!mounted) return;
       
-      // استخدام push بدل pushReplacement لتجنب مشاكل الـ context
-      await Navigator.push(
-        context,
+      Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => const HomeScreen(),
+          builder: (_) => const HomeScreen(),
           settings: const RouteSettings(name: 'home'),
         ),
       );
-      
-      // لو رجع من HomeScreen، نعرض رسالة
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم الرجوع للشاشة التشخيصية'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
     } catch (e, st) {
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('❌ خطأ'),
-            content: SelectableText(
-              'فشل فتح الشاشة الرئيسية:\n\n$e\n\n$st',
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('إغلاق'),
-              ),
-            ],
-          ),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('خطأ عند فتح الشاشة: $e')),
         );
+        setState(() => _statusLog += '\n❌ خطأ عند الضغط على الزرار:\n$e\n$st');
       }
     }
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 }
 
@@ -281,9 +224,7 @@ class _ForwarderTaskHandler extends TaskHandler {
   }
 
   @override
-  void onRepeatEvent(DateTime timestamp) {
-    // مفيش حاجة دورية محتاجينها حالياً
-  }
+  void onRepeatEvent(DateTime timestamp) {}
 
   @override
   Future<void> onDestroy(DateTime timestamp) async {

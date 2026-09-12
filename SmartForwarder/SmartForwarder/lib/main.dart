@@ -63,7 +63,13 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         notificationText: 'جاري مراقبة الرسائل النصية',
         callback: startCallback,
       );
-      _log('🚀 بدء الخدمة الخلفية: النتيجة = $serviceResult');
+
+      if (serviceResult is ServiceRequestFailure) {
+        _log('🚀 بدء الخدمة الخلفية: فشل ❌');
+        _log('سبب الفشل: ${serviceResult.error}');
+      } else {
+        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+      }
 
       telephony.listenIncomingSms(
         onNewMessage: (SmsMessage message) {

@@ -10,10 +10,12 @@ import re
 MANIFEST_PATH = "android/app/src/main/AndroidManifest.xml"
 SETTINGS_GRADLE_PATH = "android/settings.gradle"
 WRAPPER_PROPS_PATH = "android/gradle/wrapper/gradle-wrapper.properties"
+APP_BUILD_GRADLE_PATH = "android/app/build.gradle"
 
-NEW_KOTLIN_VERSION = "2.1.0"
-NEW_AGP_VERSION = "8.3.0"
-NEW_GRADLE_DIST = "https\\://services.gradle.org/distributions/gradle-8.4-all.zip"
+NEW_KOTLIN_VERSION = "1.9.22"
+NEW_AGP_VERSION = "7.4.2"
+NEW_GRADLE_DIST = "https\\://services.gradle.org/distributions/gradle-8.0-all.zip"
+NDK_VERSION = "25.1.8937393"
 
 PERMISSIONS = """
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
@@ -76,4 +78,21 @@ wrapper_content = re.sub(
 with open(WRAPPER_PROPS_PATH, "w", encoding="utf-8") as f:
     f.write(wrapper_content)
 
-print("Gradle wrapper bumped to 8.4.")
+print("Gradle wrapper bumped to 8.0.")
+
+# ---------- 4) توحيد إصدار NDK (المكتبات محتاجة نسخة أحدث من الافتراضية) ----------
+with open(APP_BUILD_GRADLE_PATH, "r", encoding="utf-8") as f:
+    app_gradle_content = f.read()
+
+if "ndkVersion" not in app_gradle_content:
+    app_gradle_content = re.sub(
+        r"(android\s*\{)",
+        r'\1\n    ndkVersion = "' + NDK_VERSION + '"',
+        app_gradle_content,
+        count=1,
+    )
+
+with open(APP_BUILD_GRADLE_PATH, "w", encoding="utf-8") as f:
+    f.write(app_gradle_content)
+
+print(f"ndkVersion set to {NDK_VERSION} in app/build.gradle.")

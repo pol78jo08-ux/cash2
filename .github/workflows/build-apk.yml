@@ -1,0 +1,65 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:        # يسمح بتشغيل البناء يدوياً من واجهة GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. جلب الكود
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. تجهيز بيئة Java (مطلوبة لبناء Android)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. تجهيز Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      # 4. تنزيل الحزم
+      - name: Install dependencies
+        working-directory: SmartForwarder/SmartForwarder
+        run: flutter pub get
+
+      # 5. توليد فولدر android/ (غير موجود في المستودع أصلاً)
+      - name: Generate Android platform files
+        working-directory: SmartForwarder/SmartForwarder
+        run: flutter create --platforms=android --org com.mywork .
+
+      # 6. تظبيط صلاحيات AndroidManifest.xml (SMS + Foreground Service)
+      - name: Patch AndroidManifest with required permissions
+        working-directory: SmartForwarder/SmartForwarder
+        run: python3 scripts/patch_manifest.py
+
+      # 7. بناء APK (release)
+      - name: Build APK
+        working-directory: SmartForwarder/SmartForwarder
+        run: flutter build apk --release
+
+      # 8. رفع الـ APK كـ Artifact (يمكن تحميله من صفحة البناء)
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartForwarder-APK
+          path: SmartForwarder/SmartForwarder/build/app/outputs/flutter-apk/app-release.apk
+
+      # 9. إنشاء Release تلقائي عند وضع Tag مثل v1.0.0
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SmartForwarder/SmartForwarder/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -55,22 +55,35 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _log('🔄 بدء التهيئة...');
 
       final smsStatus = await Permission.sms.request();
-      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌ (${smsStatus.name})"}');
+      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌"}');
 
       try {
         await Permission.notification.request();
         _log('🔔 صلاحية الإشعارات: تم الطلب');
       } catch (e) {
-        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي (طبيعي)');
+        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي');
       }
 
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
       _log('🔋 استثناء البطارية: تم الطلب');
 
-      _initForegroundTask();
+      FlutterForegroundTask.init(
+        androidNotificationOptions: AndroidNotificationOptions(
+          channelId: 'smart_forwarder_channel',
+          channelName: 'Smart Forwarder Service',
+          channelImportance: NotificationChannelImportance.LOW,
+          priority: NotificationPriority.LOW,
+        ),
+        iosNotificationOptions: const IOSNotificationOptions(),
+        foregroundTaskOptions: ForegroundTaskOptions(
+          eventAction: ForegroundTaskEventAction.nothing(),
+          autoRunOnBoot: true,
+          allowWakeLock: true,
+          allowWifiLock: true,
+        ),
+      );
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      // البدء الآمن للخدمة بدون خصائص تسبب أخطاء في الإصدار 8.x
       final serviceResult = await FlutterForegroundTask.startService(
         notificationTitle: 'Smart Forwarder شغال',
         notificationText: 'جاري مراقبة الرسائل النصية',
@@ -78,8 +91,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       );
 
       if (serviceResult is ServiceRequestFailure) {
-        _log('🚀 بدء الخدمة الخلفية: فشل ❌');
-        _log('سبب الفشل: ${serviceResult.error}');
+        _log('🚀 بدء الخدمة الخلفية: فشل ❌ - ${serviceResult.error}');
       } else {
         _log('🚀 بدء الخدمة الخلفية: نجح ✅');
       }
@@ -102,7 +114,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     }
 
     if (globalErrorLog.isNotEmpty) {
-      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
+      _log('\n⚠️ أخطاء عامة:');
       for (final err in globalErrorLog) {
         _log(err);
       }
@@ -111,25 +123,6 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     if (mounted) {
       setState(() => _initialized = true);
     }
-  }
-
-  void _initForegroundTask() {
-    FlutterForegroundTask.init(
-      androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'smart_forwarder_channel',
-        channelName: 'Smart Forwarder Service',
-        channelDescription: 'خدمة مراقبة الرسائل النصية',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
-      ),
-      iosNotificationOptions: const IOSNotificationOptions(),
-      foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.nothing(),
-        autoRunOnBoot: true,
-        allowWakeLock: true,
-        allowWifiLock: true,
-      ),
-    );
   }
 
   @override
@@ -174,41 +167,23 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: _navigateToHome,
+                onPressed: () {
+                  if (!mounted) return;
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  );
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue,
                   foregroundColor: Colors.white,
                 ),
-                child: const Text(
-                  'الدخول للتطبيق',
-                  style: TextStyle(fontSize: 16),
-                ),
+                child: const Text('الدخول للتطبيق', style: TextStyle(fontSize: 16)),
               ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  void _navigateToHome() {
-    try {
-      if (!mounted) return;
-      
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-          settings: const RouteSettings(name: 'home'),
-        ),
-      );
-    } catch (e, st) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ عند فتح الشاشة: $e')),
-        );
-        setState(() => _statusLog += '\n❌ خطأ عند الضغط على الزرار:\n$e\n$st');
-      }
-    }
   }
 }
 
@@ -220,7 +195,7 @@ void startCallback() {
 class _ForwarderTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    debugPrint('✅ Foreground service started at: $timestamp');
+    debugPrint('✅ Foreground service started');
   }
 
   @override
@@ -228,6 +203,6 @@ class _ForwarderTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp) async {
-    debugPrint('🛑 Foreground service destroyed at: $timestamp');
+    debugPrint('🛑 Foreground service destroyed');
   }
 }

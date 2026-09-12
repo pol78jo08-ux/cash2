@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -9,10 +11,23 @@ import 'theme/app_theme.dart';
 
 final Telephony telephony = Telephony.instance;
 
+/// أي خطأ يحصل في أي مكان في التطبيق (حتى لو في شاشة تانية غير شاشة التشخيص)
+/// بيتسجل هنا عشان مايضيعش بصمت في وضع Release.
+final List<String> globalErrorLog = [];
+
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  FlutterForegroundTask.initCommunicationPort();
-  runApp(const SmartForwarderApp());
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    FlutterForegroundTask.initCommunicationPort();
+
+    FlutterError.onError = (FlutterErrorDetails details) {
+      globalErrorLog.add('FlutterError: ${details.exceptionAsString()}');
+    };
+
+    runApp(const SmartForwarderApp());
+  }, (error, stackTrace) {
+    globalErrorLog.add('Uncaught: $error\n$stackTrace');
+  });
 }
 
 class SmartForwarderApp extends StatefulWidget {
@@ -89,6 +104,13 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _log(_errorMessage!);
     }
 
+    if (globalErrorLog.isNotEmpty) {
+      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
+      for (final err in globalErrorLog) {
+        _log(err);
+      }
+    }
+
     setState(() => _initialized = true);
   }
 
@@ -142,9 +164,18 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: ElevatedButton(
-              onPressed: () => Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-              ),
+              onPressed: () {
+                try {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  );
+                } catch (e, st) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('خطأ عند فتح الشاشة: $e')),
+                  );
+                  setState(() => _statusLog += '\n❌ خطأ عند الضغط على الزرار:\n$e\n$st');
+                }
+              },
               child: const Text('الدخول للتطبيق'),
             ),
           ),

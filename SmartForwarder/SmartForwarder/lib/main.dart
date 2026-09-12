@@ -165,16 +165,21 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
             padding: const EdgeInsets.all(16),
             child: ElevatedButton(
               onPressed: () {
-                try {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  );
-                } catch (e, st) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('خطأ عند فتح الشاشة: $e')),
-                  );
-                  setState(() => _statusLog += '\n❌ خطأ عند الضغط على الزرار:\n$e\n$st');
-                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('تم الضغط - جاري المحاولة...'), duration: Duration(seconds: 2)),
+                );
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  try {
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const HomeScreen()),
+                    );
+                  } catch (e, st) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('خطأ عند فتح الشاشة: $e')),
+                    );
+                    setState(() => _statusLog += '\n❌ خطأ عند الضغط على الزرار:\n$e\n$st');
+                  }
+                });
               },
               child: const Text('الدخول للتطبيق'),
             ),

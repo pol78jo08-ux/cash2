@@ -104,11 +104,11 @@ void startCallback() {
 
 class _ForwarderTaskHandler extends TaskHandler {
   @override
-  void onStart(DateTime timestamp, TaskStarter starter) {}
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
 
   @override
   void onRepeatEvent(DateTime timestamp) {}
 
   @override
-  void onDestroy(DateTime timestamp, bool isTimeout) {}
+  Future<void> onDestroy(DateTime timestamp) async {}
 }

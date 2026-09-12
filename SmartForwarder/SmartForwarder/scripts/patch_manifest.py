@@ -96,3 +96,24 @@ with open(APP_BUILD_GRADLE_PATH, "w", encoding="utf-8") as f:
     f.write(app_gradle_content)
 
 print(f"ndkVersion set to {NDK_VERSION} in app/build.gradle.")
+
+# ---------- 5) رفع minSdkVersion لـ 23 (مطلوبة من مكتبة telephony) ----------
+with open(APP_BUILD_GRADLE_PATH, "r", encoding="utf-8") as f:
+    app_gradle_content = f.read()
+
+app_gradle_content = re.sub(
+    r"minSdkVersion\s+flutter\.minSdkVersion",
+    "minSdkVersion 23",
+    app_gradle_content,
+)
+# احتياطي: لو الصيغة كانت رقم ثابت بدل flutter.minSdkVersion
+app_gradle_content = re.sub(
+    r"minSdkVersion\s+\d+",
+    "minSdkVersion 23",
+    app_gradle_content,
+)
+
+with open(APP_BUILD_GRADLE_PATH, "w", encoding="utf-8") as f:
+    f.write(app_gradle_content)
+
+print("minSdkVersion set to 23.")

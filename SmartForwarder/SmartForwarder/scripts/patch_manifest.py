@@ -1,12 +1,9 @@
-"""
-يعدّل AndroidManifest.xml اللي بيتولّد تلقائيًا من أمر `flutter create`
-عشان يضيف: صلاحيات SMS + صلاحيات Foreground Service + استثناء البطارية.
-بيشتغل عن طريق البحث عن نصوص ثابتة موجودة في كل نسخ Flutter الحديثة.
-"""
 import re
-import sys
 
 MANIFEST_PATH = "android/app/src/main/AndroidManifest.xml"
+SETTINGS_GRADLE_PATH = "android/settings.gradle"
+
+NEW_KOTLIN_VERSION = "2.1.0"
 
 PERMISSIONS = """
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
@@ -22,13 +19,28 @@ PERMISSIONS = """
 """
 
 with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
-    content = f.read()
+    manifest_content = f.read()
 
-# إضافة الصلاحيات قبل وسم <application
-if "RECEIVE_SMS" not in content:
-    content = content.replace("<application", PERMISSIONS + "\n    <application", 1)
+if "RECEIVE_SMS" not in manifest_content:
+    manifest_content = manifest_content.replace(
+        "<application", PERMISSIONS + "\n    <application", 1
+    )
 
 with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
-    f.write(content)
+    f.write(manifest_content)
 
 print("AndroidManifest.xml patched successfully.")
+
+with open(SETTINGS_GRADLE_PATH, "r", encoding="utf-8") as f:
+    settings_content = f.read()
+
+settings_content_new = re.sub(
+    r'(id\s+"org\.jetbrains\.kotlin\.android"\s+version\s+")[\d.]+(")',
+    r"\g<1>" + NEW_KOTLIN_VERSION + r"\g<2>",
+    settings_content,
+)
+
+with open(SETTINGS_GRADLE_PATH, "w", encoding="utf-8") as f:
+    f.write(settings_content_new)
+
+print(f"Kotlin plugin version bumped to {NEW_KOTLIN_VERSION} in settings.gradle.")

@@ -24,6 +24,8 @@ class SmartForwarderApp extends StatefulWidget {
 
 class _SmartForwarderAppState extends State<SmartForwarderApp> {
   bool _initialized = false;
+  String? _errorMessage;
+  String _statusLog = '';
 
   @override
   void initState() {
@@ -31,32 +33,55 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     _initializeApp();
   }
 
+  void _log(String message) {
+    // بيراكم كل خطوة نجحت، عشان لو حصل عطل نعرف بالظبط وقفنا فين
+    setState(() => _statusLog += '$message\n');
+  }
+
   Future<void> _initializeApp() async {
-    // 1. طلب صلاحيات SMS
-    await Permission.sms.request();
+    try {
+      _log('🔄 بدء التهيئة...');
 
-    // 2. طلب استثناء البطارية (API رسمي من أندرويد نفسه)
-    await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+      final smsStatus = await Permission.sms.request();
+      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌ (${smsStatus.name})"}');
 
-    // 3. تهيئة إعدادات الـ Foreground Service (يخلي التطبيق محصّن ضد قيود MIUI)
-    _initForegroundTask();
-    await FlutterForegroundTask.startService(
-      notificationTitle: 'Smart Forwarder شغال',
-      notificationText: 'جاري مراقبة الرسائل النصية',
-      callback: startCallback,
-    );
+      try {
+        await Permission.notification.request();
+        _log('🔔 صلاحية الإشعارات: تم الطلب');
+      } catch (e) {
+        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي (طبيعي)');
+      }
 
-    // 4. بدء الاستماع لأي SMS واردة (شغال حتى لو التطبيق مقفول)
-    telephony.listenIncomingSms(
-      onNewMessage: (SmsMessage message) {
-        SmsProcessor.processIncomingMessage(message);
-      },
-      onBackgroundMessage: backgroundMessageHandler,
-      listenInBackground: true,
-    );
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+      _log('🔋 استثناء البطارية: تم الطلب');
 
-    // 5. بدء مراقبة الإنترنت لإعادة إرسال الرسايل المعلّقة تلقائيًا
-    ConnectivityService.startMonitoring();
+      _initForegroundTask();
+      _log('⚙️ تهيئة إعدادات الخدمة: تمت');
+
+      final serviceResult = await FlutterForegroundTask.startService(
+        notificationTitle: 'Smart Forwarder شغال',
+        notificationText: 'جاري مراقبة الرسائل النصية',
+        callback: startCallback,
+      );
+      _log('🚀 بدء الخدمة الخلفية: النتيجة = $serviceResult');
+
+      telephony.listenIncomingSms(
+        onNewMessage: (SmsMessage message) {
+          SmsProcessor.processIncomingMessage(message);
+        },
+        onBackgroundMessage: backgroundMessageHandler,
+        listenInBackground: true,
+      );
+      _log('👂 بدء الاستماع لرسائل SMS: تم');
+
+      ConnectivityService.startMonitoring();
+      _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
+
+      _log('✅ كل حاجة اشتغلت بنجاح!');
+    } catch (e, stackTrace) {
+      _errorMessage = '❌ حصل خطأ:\n$e\n\nStack:\n$stackTrace';
+      _log(_errorMessage!);
+    }
 
     setState(() => _initialized = true);
   }
@@ -89,9 +114,36 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       builder: (context, child) {
         return Directionality(textDirection: TextDirection.rtl, child: child!);
       },
-      home: _initialized
-          ? const HomeScreen()
-          : const Scaffold(body: Center(child: CircularProgressIndicator())),
+      home: !_initialized
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : _buildDiagnosticScreen(),
+    );
+  }
+
+  /// شاشة تشخيصية مؤقتة بتوضح بالظبط وقفنا فين لو في مشكلة،
+  /// بدل ما نضطر ندور في إعدادات النظام بالتخمين.
+  Widget _buildDiagnosticScreen() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('سجل التشغيل (تشخيص)')),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(_statusLog, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+              ),
+              child: const Text('الدخول للتطبيق'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

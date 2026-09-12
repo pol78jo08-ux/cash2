@@ -101,14 +101,11 @@ print(f"ndkVersion set to {NDK_VERSION} in app/build.gradle.")
 with open(APP_BUILD_GRADLE_PATH, "r", encoding="utf-8") as f:
     app_gradle_content = f.read()
 
+before = app_gradle_content
+
+# يغطي كل الصيغ المحتملة: minSdkVersion flutter.minSdkVersion / minSdk = flutter.minSdkVersion / minSdk flutter.minSdkVersion / أرقام ثابتة
 app_gradle_content = re.sub(
-    r"minSdkVersion\s+flutter\.minSdkVersion",
-    "minSdkVersion 23",
-    app_gradle_content,
-)
-# احتياطي: لو الصيغة كانت رقم ثابت بدل flutter.minSdkVersion
-app_gradle_content = re.sub(
-    r"minSdkVersion\s+\d+",
+    r"minSdk(?:Version)?\s*=?\s*(flutter\.minSdkVersion|\d+)",
     "minSdkVersion 23",
     app_gradle_content,
 )
@@ -116,4 +113,10 @@ app_gradle_content = re.sub(
 with open(APP_BUILD_GRADLE_PATH, "w", encoding="utf-8") as f:
     f.write(app_gradle_content)
 
-print("minSdkVersion set to 23.")
+if app_gradle_content != before:
+    print("minSdkVersion set to 23 successfully (change detected).")
+else:
+    print("WARNING: minSdkVersion pattern NOT found - no change applied. Dumping defaultConfig block:")
+    match = re.search(r"defaultConfig\s*\{[^}]*\}", app_gradle_content)
+    if match:
+        print(match.group(0))

@@ -74,6 +74,8 @@ class _LogsScreenState extends State<LogsScreen> {
           _chip('فشل', LogStatus.failed),
           const SizedBox(width: 8),
           _chip('بانتظار', LogStatus.queued),
+          const SizedBox(width: 8),
+          _chip('وصلت بس مش متطابقة', LogStatus.ignored),
         ],
       ),
     );

@@ -30,6 +30,17 @@ SERVICE_DECLARATION = """
         android:exported="false" />
 """
 
+RECEIVER_DECLARATION = """
+    <receiver
+        android:name="com.shounakmulay.telephony.sms.IncomingSmsReceiver"
+        android:permission="android.permission.BROADCAST_SMS"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+        </intent-filter>
+    </receiver>
+"""
+
 with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
     manifest_content = f.read()
 
@@ -43,10 +54,15 @@ if "com.pravera.flutter_foreground_task.service.ForegroundService" not in manife
         "</application>", SERVICE_DECLARATION + "</application>", 1
     )
 
+if "com.shounakmulay.telephony.sms.IncomingSmsReceiver" not in manifest_content:
+    manifest_content = manifest_content.replace(
+        "</application>", RECEIVER_DECLARATION + "</application>", 1
+    )
+
 with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
     f.write(manifest_content)
 
-print("AndroidManifest.xml patched successfully (permissions + foreground service declaration).")
+print("AndroidManifest.xml patched successfully (permissions + foreground service + SMS receiver declaration).")
 
 with open(SETTINGS_GRADLE_PATH, "r", encoding="utf-8") as f:
     settings_content = f.read()

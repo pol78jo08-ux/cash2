@@ -26,6 +26,14 @@ class SmsProcessor {
     
     if (monitors.isEmpty) {
       debugPrint("⚠️ [DEBUG] تحذير: لا توجد مراقبات مفعلة! سيتم تجاهل الرسالة.");
+      await db.insertLog(LogEntry(
+        monitorId: null,
+        monitorLabel: '—',
+        sender: sender,
+        messageBody: body,
+        status: LogStatus.ignored,
+        errorReason: 'لا توجد مراقبات مفعّلة وقت وصول الرسالة',
+      ));
       return;
     }
 
@@ -66,6 +74,14 @@ class SmsProcessor {
 
     if (!anyMatch) {
       debugPrint("⚠️ [DEBUG] نهاية المعالجة: الرسالة وصلت، لكن لم تطابق أي نمط من المراقبات المفعلة.");
+      await db.insertLog(LogEntry(
+        monitorId: null,
+        monitorLabel: '—',
+        sender: sender,
+        messageBody: body,
+        status: LogStatus.ignored,
+        errorReason: 'وصلت الرسالة لكنها لم تطابق أي نمط مرسل مفعّل',
+      ));
     }
   }
 

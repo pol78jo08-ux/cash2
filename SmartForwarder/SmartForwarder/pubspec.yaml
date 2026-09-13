@@ -41,6 +41,12 @@ dependencies:
   # إدارة الحالة
   provider: ^6.1.2
 
+  # فتح شاشات إعدادات أندرويد (autostart / تفاصيل التطبيق) مباشرة
+  android_intent_plus: ^5.2.0
+
+  # التعرف على الشركة المصنّعة للموبايل عشان نحدد شاشة الـ autostart الصح
+  device_info_plus: ^9.1.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

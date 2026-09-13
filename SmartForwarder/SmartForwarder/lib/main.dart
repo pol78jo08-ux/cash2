@@ -76,7 +76,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         _log('🚀 بدء الخدمة الخلفية: فشل ❌');
         _log('سبب الفشل: ${serviceResult.error}');
       } else {
-        _log('🚀 بدء الخدسة الخلفية: نجح ✅');
+        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
       }
 
       telephony.listenIncomingSms(
@@ -206,9 +206,9 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         return;
       }
 
-      final messages = await telephony.getSms(
-        columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE, SmsColumn.TYPE],
-        filter: SmsFilter.where(SmsColumn.TYPE).equals(SmsMessageType.INBOX),
+      // التصحيح هنا: استخدام getInboxSms بدلاً من getSms
+      final messages = await telephony.getInboxSms(
+        columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
       );
 
       if (messages.isEmpty) {

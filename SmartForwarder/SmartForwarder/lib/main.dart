@@ -84,16 +84,21 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       );
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      final serviceResult = await FlutterForegroundTask.startService(
-        notificationTitle: 'Smart Forwarder شغال',
-        notificationText: 'جاري مراقبة الرسائل النصية',
-        callback: startCallback,
-      );
+      final bool alreadyRunning = await FlutterForegroundTask.isRunningService;
+      final serviceResult = alreadyRunning
+          ? await FlutterForegroundTask.restartService()
+          : await FlutterForegroundTask.startService(
+              notificationTitle: 'Smart Forwarder شغال',
+              notificationText: 'جاري مراقبة الرسائل النصية',
+              callback: startCallback,
+            );
 
       if (serviceResult is ServiceRequestFailure) {
         _log('🚀 بدء الخدمة الخلفية: فشل ❌ - ${serviceResult.error}');
       } else {
-        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+        _log(alreadyRunning
+            ? '🚀 الخدمة الخلفية: كانت شغالة بالفعل - تم إعادة تشغيلها ✅'
+            : '🚀 بدء الخدمة الخلفية: نجح ✅');
       }
 
       telephony.listenIncomingSms(
@@ -150,38 +155,41 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         title: const Text('سجل التشغيل (تشخيص)'),
         automaticallyImplyLeading: false,
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: SelectableText(
-                _statusLog,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (!mounted) return;
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: SelectableText(
+                  _statusLog,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                 ),
-                child: const Text('الدخول للتطبيق', style: TextStyle(fontSize: 16)),
               ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: () {
+                    debugPrint('▶️ تم الضغط على زر الدخول للتطبيق');
+                    if (!mounted) return;
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(builder: (_) => const HomeScreen()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('الدخول للتطبيق', style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

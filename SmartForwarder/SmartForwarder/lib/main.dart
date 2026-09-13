@@ -7,18 +7,21 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'screens/home_screen.dart';
 import 'services/sms_service.dart';
 import 'services/connectivity_service.dart';
-import 'services/system_settings_service.dart';
 import 'theme/app_theme.dart';
 
 final Telephony telephony = Telephony.instance;
+final List<String> globalErrorLog = [];
 
 void main() {
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
     FlutterForegroundTask.initCommunicationPort();
+    FlutterError.onError = (FlutterErrorDetails details) {
+      globalErrorLog.add('FlutterError: ${details.exceptionAsString()}');
+    };
     runApp(const SmartForwarderApp());
   }, (error, stackTrace) {
-    debugPrint('Uncaught: $error\n$stackTrace');
+    globalErrorLog.add('Uncaught: $error\n$stackTrace');
   });
 }
 
@@ -31,8 +34,8 @@ class SmartForwarderApp extends StatefulWidget {
 
 class _SmartForwarderAppState extends State<SmartForwarderApp> {
   bool _initialized = false;
-  final List<String> _issues = [];
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  String? _errorMessage;
+  String _statusLog = '';
 
   @override
   void initState() {
@@ -40,54 +43,40 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     _initializeApp();
   }
 
+  void _log(String message) {
+    setState(() => _statusLog += '$message\n');
+  }
+
   Future<void> _initializeApp() async {
     try {
+      _log('🔄 بدء التهيئة...');
       final smsStatus = await Permission.sms.request();
-      if (!smsStatus.isGranted) {
-        _issues.add('صلاحية قراءة الرسائل (SMS) مش متاحة - التطبيق مش هيقدر يرصد أي رسالة جديدة.');
-      }
+      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌ (${smsStatus.name})"}');
 
       try {
         await Permission.notification.request();
-      } catch (_) {
-        // مش مطلوبة في نسخ أندرويد الأقدم من 13
+        _log('🔔 صلاحية الإشعارات: تم الطلب');
+      } catch (e) {
+        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي (طبيعي)');
       }
 
-      await SystemSettingsService.requestIgnoreBatteryOptimization();
-      final batteryOk = await SystemSettingsService.isIgnoringBatteryOptimizations();
-      if (!batteryOk) {
-        _issues.add('توفير البطارية لسه شغال على التطبيق - ممكن الخدمة توقف نفسها في الخلفية.');
-      }
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+      _log('🔋 استثناء البطارية: تم الطلب');
 
-      SystemSettingsService.openAutoStartSettings();
+      _initForegroundTask();
+      _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      FlutterForegroundTask.init(
-        androidNotificationOptions: AndroidNotificationOptions(
-          channelId: 'smart_forwarder_channel',
-          channelName: 'Smart Forwarder Service',
-          channelImportance: NotificationChannelImportance.LOW,
-          priority: NotificationPriority.LOW,
-        ),
-        iosNotificationOptions: const IOSNotificationOptions(),
-        foregroundTaskOptions: ForegroundTaskOptions(
-          eventAction: ForegroundTaskEventAction.nothing(),
-          autoRunOnBoot: true,
-          allowWakeLock: true,
-          allowWifiLock: true,
-        ),
+      final serviceResult = await FlutterForegroundTask.startService(
+        notificationTitle: 'Smart Forwarder شغال',
+        notificationText: 'جاري مراقبة الرسائل النصية',
+        callback: startCallback,
       );
 
-      final bool alreadyRunning = await FlutterForegroundTask.isRunningService;
-      final serviceResult = alreadyRunning
-          ? await FlutterForegroundTask.restartService()
-          : await FlutterForegroundTask.startService(
-              notificationTitle: 'Smart Forwarder شغال',
-              notificationText: 'جاري مراقبة الرسائل النصية',
-              callback: startCallback,
-            );
-
       if (serviceResult is ServiceRequestFailure) {
-        _issues.add('الخدمة اللي بتراقب الرسائل في الخلفية فشلت تبدأ (${serviceResult.error}).');
+        _log('🚀 بدء الخدمة الخلفية: فشل ❌');
+        _log('سبب الفشل: ${serviceResult.error}');
+      } else {
+        _log('🚀 بدء الخدسة الخلفية: نجح ✅');
       }
 
       telephony.listenIncomingSms(
@@ -98,50 +87,41 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         listenInBackground: true,
       );
 
+      _log('👂 بدء الاستماع لرسائل SMS: تم');
+
       ConnectivityService.startMonitoring();
-    } catch (e) {
-      _issues.add('حصل خطأ غير متوقع أثناء بدء التطبيق: $e');
+      _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
+
+      _log('✅ كل حاجة اشتغلت بنجاح!');
+    } catch (e, stackTrace) {
+      _errorMessage = '❌ حصل خطأ:\n$e\nStack:\n$stackTrace';
+      _log(_errorMessage!);
     }
 
-    if (mounted) {
-      setState(() => _initialized = true);
-      if (_issues.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _showIssuesDialog());
+    if (globalErrorLog.isNotEmpty) {
+      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
+      for (final err in globalErrorLog) {
+        _log(err);
       }
     }
+
+    setState(() => _initialized = true);
   }
 
-  void _showIssuesDialog() {
-    final ctx = _navigatorKey.currentState?.overlay?.context;
-    if (ctx == null) return;
-    showDialog(
-      context: ctx,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('في حاجات محتاجة انتباهك'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: _issues
-                .map((issue) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text('• $issue'),
-                    ))
-                .toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await SystemSettingsService.openAppDetailsSettings();
-            },
-            child: const Text('فتح إعدادات التطبيق'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('تمام'),
-          ),
-        ],
+  void _initForegroundTask() {
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'smart_forwarder_channel',
+        channelName: 'Smart Forwarder Service',
+        channelImportance: NotificationChannelImportance.LOW,
+        priority: NotificationPriority.LOW,
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        eventAction: ForegroundTaskEventAction.nothing(),
+        autoRunOnBoot: true,
+        allowWakeLock: true,
+        allowWifiLock: true,
       ),
     );
   }
@@ -149,21 +129,107 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: _navigatorKey,
       title: 'Smart Forwarder',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       locale: const Locale('ar'),
       builder: (context, child) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: child!,
-        );
+        return Directionality(textDirection: TextDirection.rtl, child: child!);
       },
       home: !_initialized
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : const HomeScreen(),
+          : _buildDiagnosticScreen(),
     );
+  }
+
+  Widget _buildDiagnosticScreen() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('سجل التشغيل (تشخيص)')),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(
+                _statusLog,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _fetchLastSms,
+                    icon: const Icon(Icons.sms, size: 20),
+                    label: const Text('🔍 فحص آخر رسالة SMS وصلت للجهاز'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      try {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const HomeScreen()),
+                        );
+                      } catch (e, st) {
+                        setState(() => _statusLog += '\n❌ خطأ عند فتح الشاشة:\n$e\n$st');
+                      }
+                    },
+                    child: const Text('الدخول للتطبيق'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _fetchLastSms() async {
+    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث عن آخر رسالة SMS...');
+
+    try {
+      final status = await Permission.sms.status;
+      if (!status.isGranted) {
+        setState(() => _statusLog += '\n❌ [TEST] صلاحية SMS غير ممنوحة! الحالة: ${status.name}');
+        return;
+      }
+
+      final messages = await telephony.getSms(
+        columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE, SmsColumn.TYPE],
+        filter: SmsFilter.where(SmsColumn.TYPE).equals(SmsMessageType.INBOX),
+      );
+
+      if (messages.isEmpty) {
+        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
+        return;
+      }
+
+      final count = messages.length > 5 ? 5 : messages.length;
+      setState(() => _statusLog += '\n✅ [TEST] تم العثور على ${messages.length} رسالة. عرض آخر $count:');
+
+      for (int i = 0; i < count; i++) {
+        final msg = messages[i];
+        final date = DateTime.fromMillisecondsSinceEpoch(msg.date ?? 0);
+        setState(() => _statusLog +=
+            '\n\n📨 [${i + 1}] من: ${msg.address ?? "غير معروف"}'
+            '\n   التاريخ: ${date.toLocal()}'
+            '\n   النص: ${(msg.body ?? "").length > 100 ? (msg.body ?? "").substring(0, 100) + "..." : msg.body}');
+      }
+    } catch (e, st) {
+      setState(() => _statusLog += '\n❌ [TEST] خطأ أثناء قراءة الرسائل:\n$e\n$st');
+    }
   }
 }
 
@@ -174,15 +240,11 @@ void startCallback() {
 
 class _ForwarderTaskHandler extends TaskHandler {
   @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    debugPrint('✅ Foreground service started');
-  }
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
 
   @override
   void onRepeatEvent(DateTime timestamp) {}
 
   @override
-  Future<void> onDestroy(DateTime timestamp) async {
-    debugPrint('🛑 Foreground service destroyed');
-  }
+  Future<void> onDestroy(DateTime timestamp) async {}
 }

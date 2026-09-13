@@ -66,17 +66,27 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _initForegroundTask();
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      final serviceResult = await FlutterForegroundTask.startService(
-        notificationTitle: 'Smart Forwarder شغال',
-        notificationText: 'جاري مراقبة الرسائل النصية',
-        callback: startCallback,
-      );
-
-      if (serviceResult is ServiceRequestFailure) {
-        _log(' بدء الخدمة الخلفية: فشل ❌');
-        _log('سبب الفشل: ${serviceResult.error}');
+      final isRunning = await FlutterForegroundTask.isRunningService;
+      if (isRunning) {
+        _log('✅ الخدمة الخلفية شغالة أصلاً - لا حاجة لإعادة التشغيل');
       } else {
-        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+        _log('🔄 الخدمة مش شغالة - جاري تشغيلها...');
+        try {
+          final serviceResult = await FlutterForegroundTask.startService(
+            notificationTitle: 'Smart Forwarder شغال',
+            notificationText: 'جاري مراقبة الرسائل النصية',
+            callback: startCallback,
+          );
+
+          if (serviceResult is ServiceRequestFailure) {
+            _log('🚀 بدء الخدمة الخلفية: فشل ❌');
+            _log('سبب الفشل: ${serviceResult.error}');
+          } else {
+            _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+          }
+        } catch (e) {
+          _log('⚠️ تحذير: الخدمة قد تكون شغالة - ${e.toString()}');
+        }
       }
 
       telephony.listenIncomingSms(
@@ -90,7 +100,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _log('👂 بدء الاستماع لرسائل SMS: تم');
 
       ConnectivityService.startMonitoring();
-      _log(' مراقبة الاتصال بالإنترنت: بدأت');
+      _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
 
       _log('✅ كل حاجة اشتغلت بنجاح!');
     } catch (e, stackTrace) {
@@ -169,7 +179,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
                     ),
                     onPressed: _fetchLastSms,
                     icon: const Icon(Icons.sms, size: 20),
-                    label: const Text(' فحص آخر رسالة SMS وصلت للجهاز'),
+                    label: const Text('🔍 فحص آخر رسالة SMS وصلت للجهاز'),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -194,12 +204,12 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
   }
 
   Future<void> _fetchLastSms() async {
-    setState(() => _statusLog += '\n\n [TEST] جاري البحث عن آخر رسالة SMS...');
+    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث عن آخر رسالة SMS...');
 
     try {
       final status = await Permission.sms.status;
       if (!status.isGranted) {
-        setState(() => _statusLog += '\n [TEST] صلاحية SMS غير ممنوحة! الحالة: ${status.name}');
+        setState(() => _statusLog += '\n❌ [TEST] صلاحية SMS غير ممنوحة! الحالة: ${status.name}');
         return;
       }
 
@@ -208,7 +218,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       );
 
       if (messages.isEmpty) {
-        setState(() => _statusLog += '\n️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
+        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
         return;
       }
 
@@ -224,7 +234,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
             '\n   النص: ${(msg.body ?? "").length > 100 ? (msg.body ?? "").substring(0, 100) + "..." : msg.body}');
       }
     } catch (e, st) {
-      setState(() => _statusLog += '\n❌ [TEST] خطأ أثناء قراءة الرسائل:\n$e\n$st');
+      setState(() => _statusLog += '\n [TEST] خطأ أثناء قراءة الرسائل:\n$e\n$st');
     }
   }
 }

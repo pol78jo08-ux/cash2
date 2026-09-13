@@ -1,40 +1,50 @@
 import 'package:telephony/telephony.dart';
+import 'package:flutter/foundation.dart';
 import '../db/database_helper.dart';
 import '../models/log_entry.dart';
 import 'telegram_service.dart';
 
-/// نقطة الدخول اللي بتستقبل الرسالة سواء التطبيق مفتوح أو مقفول أو في الخلفية.
-/// لازم تفضل top-level function (مش جوه كلاس) وعليها الـ annotation ده
-/// عشان أندرويد يقدر يناديها من عملية منفصلة (Isolate) وقت التطبيق مقفول.
 @pragma('vm:entry-point')
 void backgroundMessageHandler(SmsMessage message) async {
+  debugPrint("🚨 [BACKGROUND] تم استدعاء معالج الخلفية لرسالة من: ${message.address}");
   await SmsProcessor.processIncomingMessage(message);
 }
 
 class SmsProcessor {
-  /// المنطق الأساسي: ياخد أي رسالة واردة، يقارنها بكل المراقبات المفعّلة،
-  /// وأي مراقبة تطابق يبعتلها الرسالة لتليجرام بشكل مستقل تمامًا عن باقي المراقبات.
-  ///
-  /// لو الرسالة وصلت ومتطابقتش مع أي مراقبة، بتتسجل بحالة "ignored" في السجل
-  /// عشان تقدر تشوف الشكل الحقيقي لاسم المرسل ومحتوى الرسالة - ده تسجيل تشخيصي
-  /// مؤقت لحد ما تتأكد إن كل حاجة شغالة صح، وممكن تشيله بعدين لو عايز.
   static Future<void> processIncomingMessage(SmsMessage message) async {
     final sender = message.address ?? 'UNKNOWN';
     final body = message.body ?? '';
+    
+    debugPrint("📩 [DEBUG] رسالة واردة جديدة:");
+    debugPrint("   - المرسل: $sender");
+    debugPrint("   - النص: $body");
 
     final db = DatabaseHelper.instance;
     final monitors = await db.getEnabledMonitors();
 
-    bool matchedAny = false;
+    debugPrint("🔍 [DEBUG] عدد المراقبات المفعلة المسترجعة من قاعدة البيانات: ${monitors.length}");
+    
+    if (monitors.isEmpty) {
+      debugPrint("⚠️ [DEBUG] تحذير: لا توجد مراقبات مفعلة! سيتم تجاهل الرسالة.");
+      return;
+    }
+
+    bool anyMatch = false;
 
     for (final monitor in monitors) {
+      debugPrint("🔄 [DEBUG] فحص المراقبة: '${monitor.label}' | النمط المطلوب: '${monitor.senderPattern}'");
+      
       final isMatch = sender.toLowerCase().contains(monitor.senderPattern.toLowerCase());
-      if (!isMatch) continue; // كل مراقبة بتتفلتر لوحدها، مستقلة عن الباقي
-
-      matchedAny = true;
+      
+      if (!isMatch) {
+        debugPrint("❌ [DEBUG] لا يوجد تطابق مع '${monitor.label}'. جاري تخطي هذه المراقبة.");
+        continue; 
+      }
+      
+      anyMatch = true;
+      debugPrint("✅ [DEBUG] تطابق ناجح مع '${monitor.label}'! جاري الإرسال لتليجرام...");
 
       final formattedMessage = _formatMessage(monitor.label, sender, body);
-
       final result = await TelegramService.send(
         botToken: monitor.botToken,
         chatId: monitor.chatId,
@@ -51,26 +61,17 @@ class SmsProcessor {
       );
 
       await db.insertLog(log);
-      // لو فشل الإرسال (غالبًا بسبب النت)، الرسالة بتفضل محفوظة بحالة "queued"
-      // وهيجي عليها دور إعادة المحاولة من خلال ConnectivityService لما النت يرجع.
+      debugPrint("💾 [DEBUG] تم حفظ السجل في قاعدة البيانات بنجاح. الحالة: ${log.status}");
     }
 
-    if (!matchedAny) {
-      // تسجيل تشخيصي: الرسالة وصلت فعلاً للتطبيق بس مفيش أي مراقبة اتطابقت معاها
-      // (سواء لأن مفيش مراقبات مفعّلة أصلاً، أو لأن نص المرسل مختلف عن اللي متوقّع)
-      await db.insertLog(LogEntry(
-        monitorId: null,
-        monitorLabel: monitors.isEmpty ? '(مفيش مراقبات مفعّلة)' : '(مفيش تطابق)',
-        sender: sender,
-        messageBody: body,
-        status: LogStatus.ignored,
-      ));
+    if (!anyMatch) {
+      debugPrint("⚠️ [DEBUG] نهاية المعالجة: الرسالة وصلت، لكن لم تطابق أي نمط من المراقبات المفعلة.");
     }
   }
 
   static String _formatMessage(String monitorLabel, String sender, String body) {
     return '🔔 *$monitorLabel*\n'
-        '📨 المرسل: `$sender`\n\n'
-        '```\n$body\n```';
+           '📨 المرسل: `$sender`\n\n'
+           '```\n$body\n```';
   }
 }

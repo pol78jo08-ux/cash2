@@ -34,8 +34,6 @@ class SmartForwarderApp extends StatefulWidget {
 
 class _SmartForwarderAppState extends State<SmartForwarderApp> {
   bool _initialized = false;
-  String? _errorMessage;
-  String _statusLog = '';
 
   @override
   void initState() {
@@ -43,50 +41,28 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
     _initializeApp();
   }
 
-  void _log(String message) {
-    setState(() => _statusLog += '$message\n');
-  }
-
   Future<void> _initializeApp() async {
     try {
-      _log('🔄 بدء التهيئة...');
       final smsStatus = await Permission.sms.request();
-      _log('📩 صلاحية SMS: ${smsStatus.isGranted ? "مسموحة ✅" : "مرفوضة ❌ (${smsStatus.name})"}');
+      if (!smsStatus.isGranted) return;
 
       try {
         await Permission.notification.request();
-        _log('🔔 صلاحية الإشعارات: تم الطلب');
-      } catch (e) {
-        _log('🔔 صلاحية الإشعارات: مش مطلوبة في نسخة أندرويد دي (طبيعي)');
-      }
+      } catch (e) {}
 
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
-      _log('🔋 استثناء البطارية: تم الطلب');
 
       _initForegroundTask();
-      _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
       final isRunning = await FlutterForegroundTask.isRunningService;
-      if (isRunning) {
-        _log('✅ الخدمة الخلفية شغالة أصلاً - لا حاجة لإعادة التشغيل');
-      } else {
-        _log('🔄 الخدمة مش شغالة - جاري تشغيلها...');
+      if (!isRunning) {
         try {
-          final serviceResult = await FlutterForegroundTask.startService(
+          await FlutterForegroundTask.startService(
             notificationTitle: 'Smart Forwarder شغال',
             notificationText: 'جاري مراقبة الرسائل النصية',
             callback: startCallback,
           );
-
-          if (serviceResult is ServiceRequestFailure) {
-            _log('🚀 بدء الخدمة الخلفية: فشل ❌');
-            _log('سبب الفشل: ${serviceResult.error}');
-          } else {
-            _log('🚀 بدء الخدمة الخلفية: نجح ✅');
-          }
-        } catch (e) {
-          _log('⚠️ تحذير: الخدمة قد تكون شغالة - ${e.toString()}');
-        }
+        } catch (e) {}
       }
 
       telephony.listenIncomingSms(
@@ -97,25 +73,12 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         listenInBackground: true,
       );
 
-      _log('👂 بدء الاستماع لرسائل SMS: تم');
-
       ConnectivityService.startMonitoring();
-      _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
+    } catch (e) {}
 
-      _log('✅ كل حاجة اشتغلت بنجاح!');
-    } catch (e, stackTrace) {
-      _errorMessage = '❌ حصل خطأ:\n$e\nStack:\n$stackTrace';
-      _log(_errorMessage!);
+    if (mounted) {
+      setState(() => _initialized = true);
     }
-
-    if (globalErrorLog.isNotEmpty) {
-      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
-      for (final err in globalErrorLog) {
-        _log(err);
-      }
-    }
-
-    setState(() => _initialized = true);
   }
 
   void _initForegroundTask() {
@@ -148,94 +111,8 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       },
       home: !_initialized
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _buildDiagnosticScreen(),
+          : const HomeScreen(),
     );
-  }
-
-  Widget _buildDiagnosticScreen() {
-    return Scaffold(
-      appBar: AppBar(title: const Text('سجل التشغيل (تشخيص)')),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: SelectableText(
-                _statusLog,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade700,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _fetchLastSms,
-                    icon: const Icon(Icons.sms, size: 20),
-                    label: const Text('🔍 فحص آخر رسالة SMS وصلت للجهاز'),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => const HomeScreen()),
-                      );
-                    },
-                    child: const Text('الدخول للتطبيق'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _fetchLastSms() async {
-    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث عن آخر رسالة SMS...');
-
-    try {
-      final status = await Permission.sms.status;
-      if (!status.isGranted) {
-        setState(() => _statusLog += '\n❌ [TEST] صلاحية SMS غير ممنوحة! الحالة: ${status.name}');
-        return;
-      }
-
-      final messages = await telephony.getInboxSms(
-        columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
-      );
-
-      if (messages.isEmpty) {
-        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
-        return;
-      }
-
-      final count = messages.length > 5 ? 5 : messages.length;
-      setState(() => _statusLog += '\n✅ [TEST] تم العثور على ${messages.length} رسالة. عرض آخر $count:');
-
-      for (int i = 0; i < count; i++) {
-        final msg = messages[i];
-        final date = DateTime.fromMillisecondsSinceEpoch(msg.date ?? 0);
-        setState(() => _statusLog +=
-            '\n\n📨 [${i + 1}] من: ${msg.address ?? "غير معروف"}'
-            '\n   التاريخ: ${date.toLocal()}'
-            '\n   النص: ${(msg.body ?? "").length > 100 ? (msg.body ?? "").substring(0, 100) + "..." : msg.body}');
-      }
-    } catch (e, st) {
-      setState(() => _statusLog += '\n [TEST] خطأ أثناء قراءة الرسائل:\n$e\n$st');
-    }
   }
 }
 

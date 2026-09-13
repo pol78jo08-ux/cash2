@@ -1,10 +1,3 @@
-"""
-يعدّل ملفات الأندرويد اللي بتتولّد تلقائيًا من أمر `flutter create`:
-1) AndroidManifest.xml: إضافة صلاحيات SMS + Foreground Service + استثناء البطارية.
-2) settings.gradle: رفع إصدار Kotlin Gradle Plugin و Android Gradle Plugin (AGP)
-   عشان يتوافقوا مع بعض ومع المكتبات الحديثة (shared_preferences وغيرها).
-3) gradle-wrapper.properties: رفع إصدار Gradle نفسه عشان يدعم إصدار AGP الجديد.
-"""
 import re
 
 MANIFEST_PATH = "android/app/src/main/AndroidManifest.xml"
@@ -30,7 +23,13 @@ PERMISSIONS = """
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 """
 
-# ---------- 1) تعديل الـ Manifest ----------
+SERVICE_DECLARATION = """
+    <service
+        android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+        android:foregroundServiceType="dataSync"
+        android:exported="false" />
+"""
+
 with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
     manifest_content = f.read()
 
@@ -39,12 +38,16 @@ if "RECEIVE_SMS" not in manifest_content:
         "<application", PERMISSIONS + "\n    <application", 1
     )
 
+if "com.pravera.flutter_foreground_task.service.ForegroundService" not in manifest_content:
+    manifest_content = manifest_content.replace(
+        "</application>", SERVICE_DECLARATION + "</application>", 1
+    )
+
 with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
     f.write(manifest_content)
 
-print("AndroidManifest.xml patched successfully.")
+print("AndroidManifest.xml patched successfully (permissions + foreground service declaration).")
 
-# ---------- 2) رفع إصدار Kotlin و AGP في settings.gradle ----------
 with open(SETTINGS_GRADLE_PATH, "r", encoding="utf-8") as f:
     settings_content = f.read()
 
@@ -65,7 +68,6 @@ with open(SETTINGS_GRADLE_PATH, "w", encoding="utf-8") as f:
 
 print(f"Kotlin plugin bumped to {NEW_KOTLIN_VERSION}, AGP bumped to {NEW_AGP_VERSION}.")
 
-# ---------- 3) رفع إصدار Gradle نفسه ----------
 with open(WRAPPER_PROPS_PATH, "r", encoding="utf-8") as f:
     wrapper_content = f.read()
 
@@ -80,7 +82,6 @@ with open(WRAPPER_PROPS_PATH, "w", encoding="utf-8") as f:
 
 print("Gradle wrapper bumped to 8.0.")
 
-# ---------- 4) توحيد إصدار NDK (المكتبات محتاجة نسخة أحدث من الافتراضية) ----------
 with open(APP_BUILD_GRADLE_PATH, "r", encoding="utf-8") as f:
     app_gradle_content = f.read()
 
@@ -97,13 +98,11 @@ with open(APP_BUILD_GRADLE_PATH, "w", encoding="utf-8") as f:
 
 print(f"ndkVersion set to {NDK_VERSION} in app/build.gradle.")
 
-# ---------- 5) رفع minSdkVersion لـ 23 (مطلوبة من مكتبة telephony) ----------
 with open(APP_BUILD_GRADLE_PATH, "r", encoding="utf-8") as f:
     app_gradle_content = f.read()
 
 before = app_gradle_content
 
-# يغطي كل الصيغ المحتملة: minSdkVersion flutter.minSdkVersion / minSdk = flutter.minSdkVersion / minSdk flutter.minSdkVersion / أرقام ثابتة
 app_gradle_content = re.sub(
     r"minSdk(?:Version)?\s*=?\s*(flutter\.minSdkVersion|\d+)",
     "minSdkVersion 23",

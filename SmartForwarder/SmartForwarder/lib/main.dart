@@ -11,7 +11,6 @@ import 'theme/app_theme.dart';
 
 final Telephony telephony = Telephony.instance;
 final List<String> globalErrorLog = [];
-bool _smsListenerInitialized = false;
 
 void main() {
   runZonedGuarded(() {
@@ -67,7 +66,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _initForegroundTask();
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      // التحقق من حالة الخدمة قبل التشغيل
+      // التحقق من حالة الخدمة قبل التشغيل لمنع الأخطاء
       final isRunning = await FlutterForegroundTask.isRunningService;
       if (isRunning) {
         _log('✅ الخدمة الخلفية شغالة أصلاً - لا حاجة لإعادة التشغيل');
@@ -81,37 +80,31 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
           );
 
           if (serviceResult is ServiceRequestFailure) {
-            _log('🚀 بدء الخدمة الخلفية: فشل ❌');
-            _log('سبب الفشل: ${serviceResult.error}');
+            _log('🚀 بدء الخدمة الخلفية: فشل ❌ - ${serviceResult.error}');
           } else {
             _log('🚀 بدء الخدمة الخلفية: نجح ✅');
           }
         } catch (e) {
-          _log('⚠️ تحذير: الخدمة قد تكون شغالة - ${e.toString()}');
+          _log('⚠️ تحذير: قد تكون الخدمة شغالة بالفعل - ${e.toString()}');
         }
       }
 
-      // التأكد من أن الـ SMS listener مش بيتسجل أكتر من مرة
-      if (!_smsListenerInitialized) {
-        telephony.listenIncomingSms(
-          onNewMessage: (SmsMessage message) {
-            SmsProcessor.processIncomingMessage(message);
-          },
-          onBackgroundMessage: backgroundMessageHandler,
-          listenInBackground: true,
-        );
-        _smsListenerInitialized = true;
-        _log('👂 بدء الاستماع لرسائل SMS: تم');
-      } else {
-        _log('👂 الاستماع لرسائل SMS شغال أصلاً');
-      }
+      telephony.listenIncomingSms(
+        onNewMessage: (SmsMessage message) {
+          debugPrint('📨 [UI Listener] رسالة وردت: من ${message.address}');
+          SmsProcessor.processIncomingMessage(message);
+        },
+        onBackgroundMessage: backgroundMessageHandler,
+        listenInBackground: true,
+      );
+      _log('👂 بدء الاستماع لرسائل SMS: تم');
 
       ConnectivityService.startMonitoring();
       _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
-
       _log('✅ كل حاجة اشتغلت بنجاح!');
+
     } catch (e, stackTrace) {
-      _errorMessage = ' حصل خطأ:\n$e\nStack:\n$stackTrace';
+      _errorMessage = '❌ حصل خطأ:\n$e\nStack:\n$stackTrace';
       _log(_errorMessage!);
     }
 
@@ -194,6 +187,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
+                      // الإصلاح هنا: استخدام Navigator.pushReplacement مباشرة
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -211,8 +205,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
   }
 
   Future<void> _fetchLastSms() async {
-    setState(() => _statusLog += '\n\n [TEST] جاري البحث عن آخر رسالة SMS...');
-
+    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث عن آخر رسالة SMS...');
     try {
       final status = await Permission.sms.status;
       if (!status.isGranted) {
@@ -220,12 +213,13 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         return;
       }
 
+      // الإصلاح هنا: استخدام getInboxSms بدلاً من getSms
       final messages = await telephony.getInboxSms(
         columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
       );
 
       if (messages.isEmpty) {
-        setState(() => _statusLog += '\n️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
+        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
         return;
       }
 
@@ -254,10 +248,8 @@ void startCallback() {
 class _ForwarderTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
-
   @override
   void onRepeatEvent(DateTime timestamp) {}
-
   @override
   Future<void> onDestroy(DateTime timestamp) async {}
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'screens/home_screen.dart';
@@ -9,6 +9,7 @@ import 'services/sms_service.dart';
 import 'services/connectivity_service.dart';
 import 'theme/app_theme.dart';
 
+final Telephony telephony = Telephony.instance;
 final List<String> globalErrorLog = [];
 
 void main() {
@@ -33,35 +34,13 @@ class SmartForwarderApp extends StatefulWidget {
 
 class _SmartForwarderAppState extends State<SmartForwarderApp> {
   bool _initialized = false;
+  String? _errorMessage;
   String _statusLog = '';
-  static const MethodChannel _smsChannel = MethodChannel('sms_receiver_channel');
 
   @override
   void initState() {
     super.initState();
     _initializeApp();
-    _setupSmsReceiver();
-  }
-
-  void _setupSmsReceiver() {
-    _smsChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onSmsReceived') {
-        final String sender = call.arguments['sender'];
-        final String body = call.arguments['body'];
-        
-        debugPrint('📨 [Native Receiver] رسالة من: $sender');
-        debugPrint('📝 النص: $body');
-
-        // إنشاء SmsMessage وهمي ومعالجته
-        final fakeMessage = SmsMessage(
-          address: sender,
-          body: body,
-          date: DateTime.now().millisecondsSinceEpoch,
-        );
-        
-        SmsProcessor.processIncomingMessage(fakeMessage);
-      }
-    });
   }
 
   void _log(String message) {
@@ -82,43 +61,45 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       }
 
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
-      _log(' استثناء البطارية: تم الطلب');
+      _log('🔋 استثناء البطارية: تم الطلب');
 
       _initForegroundTask();
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      final isRunning = await FlutterForegroundTask.isRunningService;
-      if (isRunning) {
-        _log('✅ الخدمة الخلفية شغالة أصلاً');
-      } else {
-        try {
-          final serviceResult = await FlutterForegroundTask.startService(
-            notificationTitle: 'Smart Forwarder شغال',
-            notificationText: 'جاري مراقبة الرسائل النصية',
-            callback: startCallback,
-          );
+      final serviceResult = await FlutterForegroundTask.startService(
+        notificationTitle: 'Smart Forwarder شغال',
+        notificationText: 'جاري مراقبة الرسائل النصية',
+        callback: startCallback,
+      );
 
-          if (serviceResult is ServiceRequestFailure) {
-            _log('🚀 بدء الخدمة الخلفية: فشل ');
-          } else {
-            _log('🚀 بدء الخدمة الخلفية: نجح ✅');
-          }
-        } catch (e) {
-          _log('⚠️ تحذير: $e');
-        }
+      if (serviceResult is ServiceRequestFailure) {
+        _log(' بدء الخدمة الخلفية: فشل ❌');
+        _log('سبب الفشل: ${serviceResult.error}');
+      } else {
+        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
       }
+
+      telephony.listenIncomingSms(
+        onNewMessage: (SmsMessage message) {
+          SmsProcessor.processIncomingMessage(message);
+        },
+        onBackgroundMessage: backgroundMessageHandler,
+        listenInBackground: true,
+      );
+
+      _log('👂 بدء الاستماع لرسائل SMS: تم');
 
       ConnectivityService.startMonitoring();
       _log(' مراقبة الاتصال بالإنترنت: بدأت');
 
       _log('✅ كل حاجة اشتغلت بنجاح!');
-      _log('💡 الـ SMS Receiver native شغال');
     } catch (e, stackTrace) {
-      _log('❌ حصل خطأ:\n$e\n$stackTrace');
+      _errorMessage = '❌ حصل خطأ:\n$e\nStack:\n$stackTrace';
+      _log(_errorMessage!);
     }
 
     if (globalErrorLog.isNotEmpty) {
-      _log('\n⚠️ أخطاء عامة:');
+      _log('\n⚠️ أخطاء عامة اتسجلت أثناء التشغيل:');
       for (final err in globalErrorLog) {
         _log(err);
       }
@@ -188,7 +169,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
                     ),
                     onPressed: _fetchLastSms,
                     icon: const Icon(Icons.sms, size: 20),
-                    label: const Text('🔍 فحص آخر رسالة SMS'),
+                    label: const Text(' فحص آخر رسالة SMS وصلت للجهاز'),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -213,27 +194,26 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
   }
 
   Future<void> _fetchLastSms() async {
-    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث...');
+    setState(() => _statusLog += '\n\n [TEST] جاري البحث عن آخر رسالة SMS...');
 
     try {
       final status = await Permission.sms.status;
       if (!status.isGranted) {
-        setState(() => _statusLog += '\n❌ [TEST] صلاحية SMS غير ممنوحة!');
+        setState(() => _statusLog += '\n [TEST] صلاحية SMS غير ممنوحة! الحالة: ${status.name}');
         return;
       }
 
-      final telephony = Telephony.instance;
       final messages = await telephony.getInboxSms(
         columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
       );
 
       if (messages.isEmpty) {
-        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ!');
+        setState(() => _statusLog += '\n️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
         return;
       }
 
       final count = messages.length > 5 ? 5 : messages.length;
-      setState(() => _statusLog += '\n✅ [TEST] تم العثور على ${messages.length} رسالة:');
+      setState(() => _statusLog += '\n✅ [TEST] تم العثور على ${messages.length} رسالة. عرض آخر $count:');
 
       for (int i = 0; i < count; i++) {
         final msg = messages[i];
@@ -244,7 +224,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
             '\n   النص: ${(msg.body ?? "").length > 100 ? (msg.body ?? "").substring(0, 100) + "..." : msg.body}');
       }
     } catch (e, st) {
-      setState(() => _statusLog += '\n❌ [TEST] خطأ:\n$e\n$st');
+      setState(() => _statusLog += '\n❌ [TEST] خطأ أثناء قراءة الرسائل:\n$e\n$st');
     }
   }
 }
@@ -263,13 +243,4 @@ class _ForwarderTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp) async {}
-}
-
-// كلاس مساعد لإنشاء SmsMessage وهمي
-class SmsMessage {
-  final String? address;
-  final String? body;
-  final int? date;
-
-  SmsMessage({this.address, this.body, this.date});
 }

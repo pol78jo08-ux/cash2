@@ -11,6 +11,7 @@ import 'theme/app_theme.dart';
 
 final Telephony telephony = Telephony.instance;
 final List<String> globalErrorLog = [];
+bool _smsListenerInitialized = false;
 
 void main() {
   runZonedGuarded(() {
@@ -66,35 +67,51 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
       _initForegroundTask();
       _log('⚙️ تهيئة إعدادات الخدمة: تمت');
 
-      final serviceResult = await FlutterForegroundTask.startService(
-        notificationTitle: 'Smart Forwarder شغال',
-        notificationText: 'جاري مراقبة الرسائل النصية',
-        callback: startCallback,
-      );
-
-      if (serviceResult is ServiceRequestFailure) {
-        _log('🚀 بدء الخدمة الخلفية: فشل ❌');
-        _log('سبب الفشل: ${serviceResult.error}');
+      // التحقق من حالة الخدمة قبل التشغيل
+      final isRunning = await FlutterForegroundTask.isRunningService;
+      if (isRunning) {
+        _log('✅ الخدمة الخلفية شغالة أصلاً - لا حاجة لإعادة التشغيل');
       } else {
-        _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+        _log('🔄 الخدمة مش شغالة - جاري تشغيلها...');
+        try {
+          final serviceResult = await FlutterForegroundTask.startService(
+            notificationTitle: 'Smart Forwarder شغال',
+            notificationText: 'جاري مراقبة الرسائل النصية',
+            callback: startCallback,
+          );
+
+          if (serviceResult is ServiceRequestFailure) {
+            _log('🚀 بدء الخدمة الخلفية: فشل ❌');
+            _log('سبب الفشل: ${serviceResult.error}');
+          } else {
+            _log('🚀 بدء الخدمة الخلفية: نجح ✅');
+          }
+        } catch (e) {
+          _log('⚠️ تحذير: الخدمة قد تكون شغالة - ${e.toString()}');
+        }
       }
 
-      telephony.listenIncomingSms(
-        onNewMessage: (SmsMessage message) {
-          SmsProcessor.processIncomingMessage(message);
-        },
-        onBackgroundMessage: backgroundMessageHandler,
-        listenInBackground: true,
-      );
-
-      _log('👂 بدء الاستماع لرسائل SMS: تم');
+      // التأكد من أن الـ SMS listener مش بيتسجل أكتر من مرة
+      if (!_smsListenerInitialized) {
+        telephony.listenIncomingSms(
+          onNewMessage: (SmsMessage message) {
+            SmsProcessor.processIncomingMessage(message);
+          },
+          onBackgroundMessage: backgroundMessageHandler,
+          listenInBackground: true,
+        );
+        _smsListenerInitialized = true;
+        _log('👂 بدء الاستماع لرسائل SMS: تم');
+      } else {
+        _log('👂 الاستماع لرسائل SMS شغال أصلاً');
+      }
 
       ConnectivityService.startMonitoring();
       _log('🌐 مراقبة الاتصال بالإنترنت: بدأت');
 
       _log('✅ كل حاجة اشتغلت بنجاح!');
     } catch (e, stackTrace) {
-      _errorMessage = '❌ حصل خطأ:\n$e\nStack:\n$stackTrace';
+      _errorMessage = ' حصل خطأ:\n$e\nStack:\n$stackTrace';
       _log(_errorMessage!);
     }
 
@@ -177,13 +194,10 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      try {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const HomeScreen()),
-                        );
-                      } catch (e, st) {
-                        setState(() => _statusLog += '\n❌ خطأ عند فتح الشاشة:\n$e\n$st');
-                      }
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const HomeScreen()),
+                      );
                     },
                     child: const Text('الدخول للتطبيق'),
                   ),
@@ -197,7 +211,7 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
   }
 
   Future<void> _fetchLastSms() async {
-    setState(() => _statusLog += '\n\n🔍 [TEST] جاري البحث عن آخر رسالة SMS...');
+    setState(() => _statusLog += '\n\n [TEST] جاري البحث عن آخر رسالة SMS...');
 
     try {
       final status = await Permission.sms.status;
@@ -206,13 +220,12 @@ class _SmartForwarderAppState extends State<SmartForwarderApp> {
         return;
       }
 
-      // التصحيح هنا: استخدام getInboxSms بدلاً من getSms
       final messages = await telephony.getInboxSms(
         columns: [SmsColumn.ADDRESS, SmsColumn.BODY, SmsColumn.DATE],
       );
 
       if (messages.isEmpty) {
-        setState(() => _statusLog += '\n⚠️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
+        setState(() => _statusLog += '\n️ [TEST] صندوق الوارد فارغ أو لا يمكن الوصول إليه!');
         return;
       }
 

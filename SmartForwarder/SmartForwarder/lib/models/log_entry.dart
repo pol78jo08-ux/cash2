@@ -1,8 +1,8 @@
-/// حالة كل رسالة في السجل
 enum LogStatus {
   success, // اتبعتت بنجاح
   failed, // فشل الإرسال (خطأ من تليجرام أو الشبكة)
   queued, // متأخرة بانتظار عودة الإنترنت
+  ignored, // وصلت للتطبيق بس متطابقتش مع أي مراقبة - تسجيل تشخيصي
 }
 
 extension LogStatusExtension on LogStatus {
@@ -14,6 +14,8 @@ extension LogStatusExtension on LogStatus {
         return 'فشل الإرسال';
       case LogStatus.queued:
         return 'بانتظار الاتصال';
+      case LogStatus.ignored:
+        return 'وصلت - مش متطابقة';
     }
   }
 
